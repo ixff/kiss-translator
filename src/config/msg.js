@@ -49,7 +49,7 @@ export const MSG_FIT_SEPARATE_WINDOW = "fit_separate_window"; // Fit the separat
 export const MSG_UPDATE_SEPARATE_WINDOW_BOUNDS =
   "update_separate_window_bounds"; // Cache the actual separate window bounds.
 export const PORT_STREAM_FETCH = "kiss_stream_fetch"; // 双向长连接端口名称：用于大模型翻译时的流式输出通道
-export const MSG_UPDATE_ICON = "update_icon"; // 通知后台脚本更新扩展的工具栏图标状态 (激活/灰色状态)
+export const MSG_UPDATE_ICON = "update_icon"; // 通知后台脚本更新扩展的工具栏/地址栏图标状态 (激活/灰色状态)
 export const MSG_SHA256 = "sha256"; // 请求后台脚本代算 SHA-256 签名
 
 // --- 用于 Window.postMessage 与自定义事件通信的事件名称 ---

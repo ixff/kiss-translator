@@ -124,7 +124,55 @@ async function updateIcon(isActive, tabId) {
   } catch (err) {
     kissLog("updateIcon error", err);
   }
+
+  // 同步地址栏按钮 (Firefox page_action) 的高亮状态，使其与工具栏按钮保持一致
+  try {
+    if (browser.pageAction?.setIcon) {
+      await browser.pageAction.setIcon({ path, tabId });
+    }
+  } catch (err) {
+    kissLog("updateIcon pageAction error", err);
+  }
 }
+
+/**
+ * 在火狐地址栏中显示扩展按钮 (page_action)。
+ * 地址栏按钮默认隐藏，manifest 的 show_matches 只能覆盖普通网页，
+ * 此处对指定标签页显式展示，保证其与工具栏按钮一样随时可见。
+ * @param {number} tabId 目标标签页 ID
+ * @returns {Promise<void>}
+ */
+async function showPageAction(tabId) {
+  if (!Number.isInteger(tabId) || !browser.pageAction?.show) return;
+  try {
+    await browser.pageAction.show(tabId);
+  } catch (err) {
+    // 部分特权页面不允许展示地址栏按钮，此处仅记录调试信息
+    logger.debug("showPageAction error", err);
+  }
+}
+
+/**
+ * 为浏览器中已打开的所有标签页显示地址栏按钮。
+ * 在扩展安装/升级及浏览器启动时调用，覆盖已存在的标签页。
+ * @returns {Promise<void>}
+ */
+async function showPageActionForAllTabs() {
+  if (!browser.pageAction?.show || !browser.tabs?.query) return;
+  try {
+    const tabs = await browser.tabs.query({});
+    await Promise.all(tabs.map((tab) => showPageAction(tab?.id)));
+  } catch (err) {
+    logger.debug("showPageActionForAllTabs error", err);
+  }
+}
+
+// 新标签页创建及页面跳转时补显地址栏按钮，
+// 覆盖 show_matches 匹配不到的特权页面 (about:* 等)，与工具栏按钮行为保持一致。
+browser.tabs?.onCreated?.addListener?.((tab) => showPageAction(tab?.id));
+browser.tabs?.onUpdated?.addListener?.((tabId, changeInfo) => {
+  if (changeInfo?.status === "loading") showPageAction(tabId);
+});
 
 // declarativeNetRequest 动态规则的起始 ID 段，避免 ID 冲突
 const CSP_RULE_START_ID = 1;
@@ -674,6 +722,8 @@ browser.runtime.onInstalled.addListener(async (details) => {
   addContextMenus(contextMenuType);
   updateCspRules({ csplist, orilist });
   trySyncAllSubRules({ subrulesList });
+  // 新装/升级后为已打开的标签页补显地址栏按钮
+  showPageActionForAllTabs();
 });
 
 /**
@@ -706,6 +756,8 @@ browser.runtime.onStartup.addListener(async () => {
   updateCspRules({ csplist, orilist });
   trySyncSettingAndRules();
   trySyncAllSubRules({ subrulesList });
+  // 浏览器重启后为恢复的标签页补显地址栏按钮
+  showPageActionForAllTabs();
 });
 
 /**
