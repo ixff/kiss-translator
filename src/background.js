@@ -58,6 +58,7 @@ import { chromeDetect, chromeTranslate } from "./libs/builtinAI";
 import { sha256 } from "./libs/utils";
 import { installStorageCoordinator } from "./libs/storageCoordination";
 import { isCurrentPopupDocument } from "./libs/popupDocument";
+import { getPageActionIconPath } from "./libs/pageActionIcon";
 
 globalThis.__KISS_CONTEXT__ = "background";
 installStorageCoordinator();
@@ -100,6 +101,10 @@ function openOptionsPage() {
   return openingOptionsPage;
 }
 
+// 地址栏按钮图标 (Firefox page_action) 借用 TWP - Translate Web Pages 的行为：
+// 未翻译时是黑白单色 SVG，翻译激活后才切换为彩色，见 applyPageActionIcon()。
+// 字形与配色来源 public/THIRD_PARTY_NOTICES.md (MPL-2.0)。
+
 /**
  * 根据前台翻译的激活状态更新浏览器插件栏图标。
  * @param {boolean} isActive 翻译器是否激活 (是否处于高亮彩色状态)
@@ -125,13 +130,64 @@ async function updateIcon(isActive, tabId) {
     kissLog("updateIcon error", err);
   }
 
-  // 同步地址栏按钮 (Firefox page_action) 的高亮状态，使其与工具栏按钮保持一致
+  // 同步地址栏按钮 (Firefox page_action) 的图标：
+  // 记录该标签页的翻译状态后，按 TWP 行为重设黑白/彩色 SVG 图标
+  if (Number.isInteger(tabId)) {
+    pageActionIconState.set(tabId, isActive);
+  }
+  await applyPageActionIcon(tabId);
+}
+
+// 各标签页的翻译激活状态，用于页面加载或主题明暗变化时重建地址栏图标
+const pageActionIconState = new Map();
+
+/**
+ * 读取浏览器当前的暗色主题状态（与 TWP 一致，使用 prefers-color-scheme）。
+ * 后台脚本在不支持 matchMedia 的环境（如 Chrome Service Worker）中回落为亮色。
+ * @returns {boolean} 是否处于暗色主题
+ */
+function isPageActionDarkScheme() {
   try {
-    if (browser.pageAction?.setIcon) {
-      await browser.pageAction.setIcon({ path, tabId });
-    }
+    return (
+      typeof matchMedia === "function" &&
+      matchMedia("(prefers-color-scheme: dark)").matches
+    );
   } catch (err) {
-    kissLog("updateIcon pageAction error", err);
+    return false;
+  }
+}
+
+/**
+ * 按翻译状态与主题明暗重设地址栏按钮图标。
+ * @param {number} tabId 目标标签页 ID
+ * @returns {Promise<void>}
+ */
+async function applyPageActionIcon(tabId) {
+  if (!Number.isInteger(tabId) || !browser.pageAction?.setIcon) return;
+  try {
+    await browser.pageAction.setIcon({
+      tabId,
+      path: getPageActionIconPath(
+        pageActionIconState.get(tabId) === true,
+        isPageActionDarkScheme()
+      ),
+    });
+  } catch (err) {
+    logger.debug("applyPageActionIcon error", err);
+  }
+}
+
+/**
+ * 主题明暗变化后为所有标签页重建地址栏图标（对齐 TWP 的 updateIconInAllTabs）。
+ * @returns {Promise<void>}
+ */
+async function refreshPageActionIcons() {
+  if (!browser.pageAction?.setIcon || !browser.tabs?.query) return;
+  try {
+    const tabs = await browser.tabs.query({});
+    await Promise.all(tabs.map((tab) => applyPageActionIcon(tab?.id)));
+  } catch (err) {
+    logger.debug("refreshPageActionIcons error", err);
   }
 }
 
@@ -146,6 +202,8 @@ async function showPageAction(tabId) {
   if (!Number.isInteger(tabId) || !browser.pageAction?.show) return;
   try {
     await browser.pageAction.show(tabId);
+    // 展示的同时刷新图标，保证亮/暗主题与翻译状态始终正确
+    await applyPageActionIcon(tabId);
   } catch (err) {
     // 部分特权页面不允许展示地址栏按钮，此处仅记录调试信息
     logger.debug("showPageAction error", err);
@@ -171,8 +229,28 @@ async function showPageActionForAllTabs() {
 // 覆盖 show_matches 匹配不到的特权页面 (about:* 等)，与工具栏按钮行为保持一致。
 browser.tabs?.onCreated?.addListener?.((tab) => showPageAction(tab?.id));
 browser.tabs?.onUpdated?.addListener?.((tabId, changeInfo) => {
-  if (changeInfo?.status === "loading") showPageAction(tabId);
+  if (changeInfo?.status !== "loading") return;
+  // 整页跳转后翻译状态复位，地址栏图标回到黑白（未翻译）态
+  pageActionIconState.delete(tabId);
+  showPageAction(tabId);
 });
+browser.tabs?.onRemoved?.addListener?.((tabId) => {
+  pageActionIconState.delete(tabId);
+});
+
+// 浏览器明暗主题切换时重建地址栏图标（TWP 同样监听该事件重设图标颜色）
+try {
+  if (typeof matchMedia === "function") {
+    const schemeQuery = matchMedia("(prefers-color-scheme: dark)");
+    if (typeof schemeQuery.addEventListener === "function") {
+      schemeQuery.addEventListener("change", refreshPageActionIcons);
+    } else if (typeof schemeQuery.addListener === "function") {
+      schemeQuery.addListener(refreshPageActionIcons);
+    }
+  }
+} catch (err) {
+  logger.debug("listen color scheme change error", err);
+}
 
 // declarativeNetRequest 动态规则的起始 ID 段，避免 ID 冲突
 const CSP_RULE_START_ID = 1;
