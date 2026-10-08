@@ -89,8 +89,7 @@
   },
   "page_action": {
     "default_icon": "images/twp-icon.svg",
-    "default_title": "__MSG_app_name__",
-    "default_popup": "popup.html",
+    "default_title": "__MSG_toggle_translate__",
     "show_matches": ["<all_urls>"]
   },
   "options_ui": {

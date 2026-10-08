@@ -20,6 +20,9 @@
   "open_options": {
     "message": "Einstellungen öffnen"
   },
+  "page_action_show_popup": {
+    "message": "Übersetzungs-Pop-up anzeigen"
+  },
   "open_tranbox": {
     "message": "Popup-Fenster öffnen"
   },

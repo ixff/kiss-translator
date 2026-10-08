@@ -20,6 +20,9 @@
   "open_options": {
     "message": "打开设置"
   },
+  "page_action_show_popup": {
+    "message": "显示翻译弹窗"
+  },
   "open_tranbox": {
     "message": "打开页内弹窗"
   },

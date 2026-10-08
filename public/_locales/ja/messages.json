@@ -20,6 +20,9 @@
   "open_options": {
     "message": "設定を開く"
   },
+  "page_action_show_popup": {
+    "message": "翻訳ポップアップを表示"
+  },
   "open_tranbox": {
     "message": "ポップアップを開く"
   },

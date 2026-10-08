@@ -20,6 +20,9 @@
   "open_options": {
     "message": "Mở Cài đặt"
   },
+  "page_action_show_popup": {
+    "message": "Hiển thị cửa sổ dịch thuật"
+  },
   "open_tranbox": {
     "message": "Mở Hộp Bật lên"
   },

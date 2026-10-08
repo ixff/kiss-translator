@@ -20,6 +20,9 @@
   "open_options": {
     "message": "Abrir configuración"
   },
+  "page_action_show_popup": {
+    "message": "Mostrar ventana emergente de traducción"
+  },
   "open_tranbox": {
     "message": "Abrir ventana emergente"
   },

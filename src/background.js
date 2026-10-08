@@ -26,6 +26,8 @@ import {
   CMD_OPEN_TRANBOX,
   CMD_TOGGLE_TRANBOX,
   CMD_OPEN_SEPARATE_WINDOW,
+  CMD_PAGE_ACTION_OPEN_OPTIONS,
+  CMD_PAGE_ACTION_SHOW_POPUP,
   CLIENT_THUNDERBIRD,
   MSG_SET_LOGLEVEL,
   MSG_CLEAR_CACHES,
@@ -237,6 +239,122 @@ browser.tabs?.onUpdated?.addListener?.((tabId, changeInfo) => {
 browser.tabs?.onRemoved?.addListener?.((tabId) => {
   pageActionIconState.delete(tabId);
 });
+
+/**
+ * 地址栏按钮点击：左键（button 0）直接切换当前页双语翻译（对齐 TWP 点击即翻译）；
+ * 中键（button 1）打开翻译弹窗——pageAction.onClicked 的 EventManager 声明了
+ * inputHandling，是 Firefox 认可的“用户输入处理器”，这里调用 openPopup() 必定满足
+ * 手势要求，是右键菜单入口手势不足时的可靠替代。
+ * page_action 未配置 popup，因此点击会派发到此；扩展选项入口在右键菜单中。
+ */
+browser.pageAction?.onClicked?.addListener?.((tab, clickInfo) => {
+  if (clickInfo?.button === 1) {
+    openPageActionPopup(tab?.id);
+    return;
+  }
+  sendTabMsg(MSG_TRANS_TOGGLE, undefined, undefined, tab?.id);
+});
+
+// “显示翻译弹窗”失败原因的展示定时器（key: tabId）
+const pageActionTitleTimers = new Map();
+
+/**
+ * 还原地址栏按钮的悬停提示为 manifest 默认标题。
+ * @param {number} tabId 目标标签页 ID
+ * @returns {Promise<void>}
+ */
+async function restorePageActionTitle(tabId) {
+  const timer = pageActionTitleTimers.get(tabId);
+  if (!timer) return;
+  clearTimeout(timer);
+  pageActionTitleTimers.delete(tabId);
+  try {
+    await browser.pageAction.setTitle({
+      tabId,
+      title: browser.i18n.getMessage("toggle_translate") || "",
+    });
+  } catch (err) {
+    logger.debug("restore pageAction title error", err);
+  }
+}
+
+/**
+ * 展示“显示翻译弹窗”的失败原因：写入后台日志，并把地址栏按钮的悬停提示
+ * 临时改为错误信息（8 秒后自动还原），鼠标放到图标上即可看到，无需打开控制台。
+ * @param {number} tabId 目标标签页 ID
+ * @param {string} reason 失败原因
+ * @returns {Promise<void>}
+ */
+async function showPageActionPopupError(tabId, reason) {
+  kissLog("openPageActionPopup failed:", reason);
+  if (!Number.isInteger(tabId) || !browser.pageAction?.setTitle) return;
+  try {
+    await browser.pageAction.setTitle({ tabId, title: `⚠ ${reason}` });
+    const previous = pageActionTitleTimers.get(tabId);
+    if (previous) clearTimeout(previous);
+    pageActionTitleTimers.set(
+      tabId,
+      setTimeout(() => restorePageActionTitle(tabId), 8000)
+    );
+  } catch (err) {
+    logger.debug("showPageActionPopupError error", err);
+  }
+}
+
+/**
+ * 打开“翻译弹窗”（锚点在地址栏按钮上）。
+ *
+ * 关键约束（Firefox）：pageAction.openPopup() 在 schema 层要求 requireUserInput，
+ * 调用瞬间会检查 windowUtils.isHandlingUserInput（ExtensionCommon.sys.mjs 的
+ * callAsyncFunction）；该标记只在触发本次点击的**同步调用栈**内为真。因此
+ * setPopup → openPopup → 恢复 setPopup 三步必须与 TWP 一样在同一 tick 内同步完成，
+ * 任何 await / setTimeout 都会丢掉用户手势并抛
+ * "may only be called from a user input handler"。
+ * @param {number} tabId 目标标签页 ID
+ * @returns {void}
+ */
+function openPageActionPopup(tabId) {
+  if (!Number.isInteger(tabId) || !browser.pageAction?.setPopup) return;
+
+  // 1) 挂上 popup（不 await：底层同步执行，紧随其后的 openPopup 能读到该值）
+  try {
+    Promise.resolve(
+      browser.pageAction.setPopup({ tabId, popup: "popup.html" })
+    ).catch((err) => logger.debug("setPopup popup.html error", err));
+  } catch (err) {
+    logger.debug("setPopup popup.html error", err);
+  }
+
+  // 2) 同步弹出：必须留在当前用户输入调用栈内
+  let openPromise = null;
+  if (browser.pageAction?.openPopup) {
+    try {
+      openPromise = Promise.resolve(browser.pageAction.openPopup());
+    } catch (err) {
+      openPromise = Promise.reject(err);
+    }
+  }
+
+  // 3) 同步恢复空 popup，保证后续左键仍是直接翻译（TWP resetPageAction 的顺序）
+  try {
+    Promise.resolve(browser.pageAction.setPopup({ tabId, popup: "" })).catch(
+      (err) => logger.debug("reset pageAction popup error", err)
+    );
+  } catch (err) {
+    logger.debug("reset pageAction popup error", err);
+  }
+
+  if (!openPromise) {
+    showPageActionPopupError(tabId, "pageAction.openPopup unavailable");
+    return;
+  }
+
+  openPromise
+    .then(() => restorePageActionTitle(tabId))
+    .catch((err) =>
+      showPageActionPopupError(tabId, String(err?.message || err))
+    );
+}
 
 // 浏览器明暗主题切换时重建地址栏图标（TWP 同样监听该事件重设图标颜色）
 try {
@@ -583,6 +701,22 @@ async function addContextMenus(contextMenuType = 1) {
     await browser.contextMenus.removeAll();
   } catch (err) {
     kissLog("remove contextMenus", err);
+  }
+
+  // 地址栏按钮 (page_action) 的右键菜单：左键已改为直接翻译，
+  // 右键提供“显示翻译弹窗”与“打开扩展选项”两个入口。
+  // page_action 仅 Firefox 在 manifest 中声明（Chrome MV3 已移除该 API），故按 API 存在性创建。
+  if (browser.pageAction?.onClicked) {
+    browser.contextMenus.create({
+      id: CMD_PAGE_ACTION_SHOW_POPUP,
+      title: browser.i18n.getMessage("page_action_show_popup"),
+      contexts: ["page_action"],
+    });
+    browser.contextMenus.create({
+      id: CMD_PAGE_ACTION_OPEN_OPTIONS,
+      title: browser.i18n.getMessage("open_options"),
+      contexts: ["page_action"],
+    });
   }
 
   switch (contextMenuType) {
@@ -935,7 +1069,7 @@ browser.commands?.onCommand?.addListener?.((command) => {
  * 触发时，通过 Chrome 消息管道将对应指令转发给用户所点击页面的前台 Content Script。
  */
 browser?.contextMenus?.onClicked?.addListener?.(
-  ({ menuItemId, selectionText }) => {
+  ({ menuItemId, selectionText }, tab) => {
     switch (menuItemId) {
       case CMD_TOGGLE_TRANSLATE:
         sendTabMsg(MSG_TRANS_TOGGLE);
@@ -954,6 +1088,12 @@ browser?.contextMenus?.onClicked?.addListener?.(
         break;
       case CMD_OPEN_OPTIONS:
         openOptionsPage();
+        break;
+      case CMD_PAGE_ACTION_SHOW_POPUP:
+        openPageActionPopup(tab?.id); // 右键“显示翻译弹窗”
+        break;
+      case CMD_PAGE_ACTION_OPEN_OPTIONS:
+        openOptionsPage(); // 地址栏按钮右键菜单项
         break;
       default:
     }

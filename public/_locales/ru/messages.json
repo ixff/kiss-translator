@@ -20,6 +20,9 @@
   "open_options": {
     "message": "Открыть настройки"
   },
+  "page_action_show_popup": {
+    "message": "Показать окно перевода"
+  },
   "open_tranbox": {
     "message": "Открыть окно перевода"
   },

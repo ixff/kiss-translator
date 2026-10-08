@@ -11,6 +11,8 @@ export const CMD_OPEN_OPTIONS = "openOptions"; // 打开选项配置页面
 export const CMD_OPEN_TRANBOX = "openTranbox"; // 开启划词翻译面板
 export const CMD_TOGGLE_TRANBOX = "toggleTranbox"; // 显隐划词翻译面板
 export const CMD_OPEN_SEPARATE_WINDOW = "openSeparateWindow"; // 打开独立的翻译悬浮窗口
+export const CMD_PAGE_ACTION_OPEN_OPTIONS = "pageActionOpenOptions"; // 地址栏按钮右键菜单：打开扩展选项
+export const CMD_PAGE_ACTION_SHOW_POPUP = "pageActionShowPopup"; // 地址栏按钮右键菜单：显示翻译弹窗
 
 // --- 扩展运行中的内部通信 Message Action 常量 ---
 export const MSG_FETCH = "kiss_fetch"; // 代理请求 (避免内容脚本跨域限制)

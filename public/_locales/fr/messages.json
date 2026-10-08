@@ -20,6 +20,9 @@
   "open_options": {
     "message": "Ouvrir les paramètres"
   },
+  "page_action_show_popup": {
+    "message": "Afficher la fenêtre de traduction"
+  },
   "open_tranbox": {
     "message": "Ouvrir la fenêtre contextuelle"
   },
